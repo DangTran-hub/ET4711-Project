@@ -1,6 +1,6 @@
 node_modules
 .env
-docs
-AGENTS.md
-ARCHITECTURE.md
-PRD.md
+.env.*
+*serviceAccount*.json
+*-firebase-adminsdk-*.json
+dist/
