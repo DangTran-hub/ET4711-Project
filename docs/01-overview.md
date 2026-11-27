@@ -83,8 +83,8 @@ and the ticket becomes `PENDING_REVIEW`.
 | `CLOCK_SKEW_FLAG_MIN` | 10 | Device/server clock difference threshold for flagging |
 | `PHOTO_MAX_BYTES` | 8388608 | 8 MB per photo |
 | `PHOTO_MIN_PER_PHASE` / `PHOTO_MAX_PER_PHASE` | 1 / 5 | Number of photos per type (BEFORE and AFTER) |
-| `SYNC_RETRY_BACKOFF_S` | 5, 15, 60, 300, 900 | Wait time between retries |
-| `SYNC_MAX_ATTEMPTS` | 8 | Beyond this, stop and notify the user |
+| `SYNC_RETRY_BACKOFF_S` | 5, 15, 60, 300, 900 | Base delay after successive failed sends. Repeat the final delay if more retries remain (docs/06). |
+| `SYNC_MAX_ATTEMPTS` | 8 | Maximum counted attempts per queue item, including the initial send. Stop after the last failed attempt. |
 
 ## Design decisions (finalized, do not re-propose)
 1. Do not use Firestore offline persistence on mobile; build our own queue with `expo-sqlite`.

@@ -35,7 +35,7 @@ Notes:
 ## Edge cases and decisions
 | Situation | Decision |
 |---|---|
-| A check-in is sent late (created while offline) and the server finds it outside the zone | `422 OUT_OF_GEOFENCE`. The queue item becomes `FAILED_PERMANENT`, and later items for that ticket are blocked. The ticket stays `ASSIGNED`. The technician must check in again while online and at the right location; photos already taken remain on the device but are marked no longer valid if too old relative to the new check-in (docs/06). |
+| A queued check-in fails the server's distance or accuracy check | `422 OUT_OF_GEOFENCE` or `422 GPS_ACCURACY_TOO_LOW`. The queue item becomes `FAILED_PERMANENT`, and its dependent items are blocked. The ticket stays `ASSIGNED`. The technician checks in again online with a new event ID and retakes the photos from the failed attempt (docs/06). |
 | Submitting a report twice with the same `clientReportId` | Return the first result (200); do not create a new one. |
 | Submitting a report when the ticket is not `IN_PROGRESS`/`REJECTED` | `409 INVALID_STATE_TRANSITION`. |
 | Two check-ins with the same `clientEventId` | Return the first result (200). |

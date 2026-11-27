@@ -47,29 +47,29 @@ CHECK_IN → UPLOAD_PHOTO (each photo) → UPLOAD_SIGNATURE (if any) → SUBMIT_
 ## Check-in while offline
 - The "Start work" button unlocks based on local GPS (≤ `GEOFENCE_RADIUS_M`, accuracy ≤ `GPS_MAX_ACCURACY_M`), with no network needed.
 - Pressing it: write a `CHECK_IN` item (with coordinates, `capturedAt`, `mockLocationDetected`) and allow work to continue locally (taking photos).
-- On sync, the server recalculates the distance itself. If `OUT_OF_GEOFENCE`: the item is `FAILED_PERMANENT`, later items are `BLOCKED`, and the ticket on the server stays `ASSIGNED`. The app tells the technician to check in again while online and standing at the right location. Photos taken earlier are marked `STALE`: they cannot be used for the new report (retake them), to avoid using photos taken before a valid check-in.
+- If the server returns `OUT_OF_GEOFENCE` or `GPS_ACCURACY_TOO_LOW`, mark the check-in `FAILED_PERMANENT` and later items for that ticket `BLOCKED`. The server ticket stays `ASSIGNED`. Prompt the technician to check in again while online with a fresh GPS fix.
+- When the technician starts a fresh check-in after either of these errors, use one SQLite transaction to remove the failed check-in and its blocked dependents, mark the failed attempt's local photos `STALE`, and enqueue a new `CHECK_IN` with a new `clientEventId`. The retained photos are excluded from the new draft and must be retaken. Discard the old pending report and any queued signature upload. Leave other tickets' queue items alone.
 
 ## When sync runs
 App reopened / returns to foreground; network goes from offline → online (`@react-native-community/netinfo`); a new item is just added; `nextRetryAt` is due.
 Only one worker runs at a time.
 
 ## Retry policy
-- Retry on: network loss, timeout, 5xx, 429, 401 after token refresh, `PHOTO_NOT_FOUND`.
-- Wait per `SYNC_RETRY_BACKOFF_S` (5s, 15s, 60s, 5 minutes, 15 minutes), plus random ±20%.
-- Beyond `SYNC_MAX_ATTEMPTS`: `FAILED_PERMANENT`. For errors that must not be retried: `FAILED_PERMANENT` immediately, storing `lastErrorCode`.
-- Network loss does NOT count toward `attemptCount`.
+- Retry timeouts, 5xx, 429, and `PHOTO_NOT_FOUND`. For each counted failed attempt, take the next delay from `SYNC_RETRY_BACKOFF_S` and apply random ±20% jitter. Use the last delay again for retries beyond the list. For 429, wait at least as long as a valid `Retry-After` value, even when it exceeds the jittered delay. If the header is absent or invalid, use the jittered delay.
+- Count the initial send toward `SYNC_MAX_ATTEMPTS`. A 401 allows one immediate resend after a successful token refresh as part of the same attempt. A second 401 or a terminal refresh failure ends the item. A transient refresh failure follows the network or backoff policy for that failure.
+- Confirmed network loss pauses the item until connectivity returns and does not increment `attemptCount`. A timeout without confirmed network loss counts as a failed attempt.
+- After the last counted failure, or immediately on a non-retryable error, set `FAILED_PERMANENT` and store `lastErrorCode`.
 - Photo upload uses a fixed path based on `photoId`; if the file already exists, treat it as success (check existence/hash).
 
 ## When the app is killed midway
 On opening the app, set every `SYNCING` item back to `PENDING`. All operations are idempotent, so resending is safe. Photos already taken are in `local_photos`.
 
 ## Time windows and clock skew
-- Mobile sends `capturedAt` using device time; the server records `receivedAt`.
-- Valid photo window: for attempt 1 it is [`checkinAt`, `completedAt`]; for attempt > 1 it is [`reviewedAt` of the previously rejected report, `completedAt`]. A photo outside the window: flag `PHOTO_TIME_OUTSIDE_WINDOW`.
-- `completedAt` must not be after `receivedAt`; no timestamp may be in the future relative to `receivedAt`. Violation: flag `CLOCK_SKEW`.
-- For data sent directly (not delayed by being offline) where |`receivedAt` − `capturedAt`| > `CLOCK_SKEW_FLAG_MIN`: flag `CLOCK_SKEW`.
-- For data sent late due to being offline, the time difference cannot be used; rely on the window and the most recently measured `clock_offset_ms` from when the network was available.
-- Flags only warn the dispatcher; they never reject automatically.
+- Mobile sends the original device timestamps. The server records `checkinReceivedAt` for check-in and `receivedAt` for each report.
+- The queue sends `wasDelayedOffline: true` if the check-in or report was enqueued offline or confirmed network loss delayed its delivery or a prerequisite upload. Otherwise it sends `false`. Persist this information in the local queue so an app restart preserves it. This client hint affects the receipt-delay check only. The server still validates evidence, ownership, geofence, and ticket state.
+- The valid photo window for attempt 1 is [`checkinAt`, `completedAt`]. For later attempts it is [`reviewedAt` of the previously rejected report, `completedAt`]. Flag a photo outside the window as `PHOTO_TIME_OUTSIDE_WINDOW`.
+- For both online and offline actions, flag `CLOCK_SKEW` if any submitted device timestamp is later than the applicable server receipt time. When `wasDelayedOffline` is `false`, also flag if the absolute difference between `capturedAt` and `checkinReceivedAt`, or between `completedAt` and `receivedAt`, exceeds `CLOCK_SKEW_FLAG_MIN`. Individual photo and signature timestamps can predate submission by the duration of the work.
+- Store a check-in clock-skew flag in that event's `data.flags` and include it in the report flags. The mobile app may use its last `clock_offset_ms` estimate for local clock feedback. Anomaly flags warn the dispatcher and never reject a submission on their own.
 
 ## Anti-fraud on mobile (layers)
 1. Use only the in-app camera; do not call the image picker; `source = "IN_APP_CAMERA"`.
