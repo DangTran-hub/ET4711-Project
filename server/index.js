@@ -1,4 +1,3 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 
@@ -10,4 +9,14 @@ app.get('/api/hello', (req, res) => {
   res.json({ message: 'Xin chào từ server' });
 });
 
-app.listen(3000, () => console.log('Server chạy ở cổng 3000'));
+app.get('/api/v1/health', (req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
+if (require.main === module) {
+  app.listen(3000).on('listening', () => {
+    console.log('Server chạy ở cổng 3000');
+  });
+}
+
+module.exports = app;
